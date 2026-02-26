@@ -1,9 +1,22 @@
-FROM node:18-slim  
+FROM node:18-alpine
+WORKDIR /usr/src/nuke
 
-RUN apt-get update && \  
-    apt-get install -y \  
-    python3 \  
-    build-essential \  
-    git \  
-    ca-certificates \  
-    && rm -rf /var/lib/apt/lists/*  
+RUN apk update && \
+    apk add --no-cache \
+    python3 \
+    make \
+    g++ \
+    git \
+    openssl \
+    ca-certificates \
+    libc6-compat
+
+COPY package*.json ./
+
+RUN npm config set unsafe-perm true && \
+    npm install -g npm@9.8.1 && \
+    npm install --production
+
+COPY . .
+
+CMD ["npm", "run", "nuke"]
