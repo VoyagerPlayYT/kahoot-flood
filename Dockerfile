@@ -1,19 +1,9 @@
-FROM node:18-alpine  
-WORKDIR /usr/src/nuke  
+FROM node:18-slim  
 
-RUN apk update && \  
-    apk add --no-cache \  
+RUN apt-get update && \  
+    apt-get install -y \  
     python3 \  
-    make \  
-    g++ \  
+    build-essential \  
     git \  
-    ca-certificates  
-
-COPY package*.json ./  
-
-RUN npm config set unsafe-perm true && \  
-    npm install --production --no-optional --force  
-
-COPY . .  
-
-CMD ["npm", "run", "flood"]  
+    ca-certificates \  
+    && rm -rf /var/lib/apt/lists/*  
